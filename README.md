@@ -1,4 +1,4 @@
-# 🧠❤️ Détection de maladies cardiaques & Dashboard Surf 🌊
+# Analyse prédictive des maladies cardiaques & Conception d'un dashboard pour une école de surf
 
 Ce dépôt contient deux projets data complets : 
 

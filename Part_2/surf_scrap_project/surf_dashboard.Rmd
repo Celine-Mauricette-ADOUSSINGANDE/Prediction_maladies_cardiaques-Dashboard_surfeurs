@@ -1,0 +1,385 @@
+---
+title: "🌊 Dashboard Météo Surf - Prévisions 7 jours"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(dplyr)
+library(ggplot2)
+library(DT)
+library(plotly)
+library(tidyr)
+library(knitr)
+
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r import_data, include=FALSE}
+# Importer le dataset CSV
+csv_path <- if (file.exists("output/surf_data.csv")) {
+  "output/surf_data.csv"
+} else if (file.exists("surf_data.csv")) {
+  "surf_data.csv"
+} else {
+  stop("❌ Fichier surf_data.csv introuvable. Exécutez : python run_surf_scrap.py")
+}
+
+data <- read.csv(csv_path, encoding = "UTF-8", stringsAsFactors = FALSE)
+```
+
+```{r prepare_data, include=FALSE}
+# Préparer les données
+data <- data %>%
+  mutate(across(where(is.character), ~na_if(., "N/A"))) %>%
+  mutate(across(where(is.character), ~na_if(., "")))
+
+data$wind_speed_clean <- suppressWarnings(as.numeric(gsub("\\\\n", "", data$wind_speed)))
+
+data <- data %>%
+  separate(waves_size, into = c("wave_min", "wave_max"), 
+           sep = " - ", remove = FALSE, fill = "right") %>%
+  mutate(
+    wave_min = suppressWarnings(as.numeric(wave_min)),
+    wave_max = suppressWarnings(as.numeric(wave_max))
+  )
+
+data <- data %>%
+  filter(!is.na(wave_min), !is.na(wave_max), 
+         !is.na(wind_speed_clean), !is.na(wind_direction),
+         wind_direction != "") %>%
+  mutate(
+    wave_mean = (wave_min + wave_max) / 2,
+    time_index = row_number(),
+    datetime = paste(day, hour)
+  )
+
+if (nrow(data) == 0) stop("❌ Aucune donnée valide")
+```
+
+```{r calculate_kpis, include=FALSE}
+# Calculer les KPIs
+data <- data %>%
+  mutate(
+    is_good_wave = wave_mean >= 1.0,
+    is_good_wind_speed = wind_speed_clean <= 50,
+    is_good_wind_direction = grepl("Nord", wind_direction, ignore.case = TRUE),
+    surf_score = (as.numeric(is_good_wave) * 40) + 
+                 (as.numeric(is_good_wind_speed) * 30) + 
+                 (as.numeric(is_good_wind_direction) * 30)
+  )
+
+# Meilleur moment
+best_moment_idx <- which.max(data$surf_score)
+if (length(best_moment_idx) == 0) best_moment_idx <- 1
+best_moment <- data[best_moment_idx, ]
+
+# Vague la plus haute
+highest_wave_idx <- which.max(data$wave_max)
+if (length(highest_wave_idx) == 0) highest_wave_idx <- 1
+highest_wave <- data[highest_wave_idx, ]
+
+# Grade
+grade_score <- best_moment$surf_score
+grade_text <- case_when(
+  grade_score == 100 ~ "Parfait 🌟",
+  grade_score >= 90 ~ "Excellent ⭐⭐⭐",
+  grade_score >= 70 ~ "Très Bon ⭐⭐",
+  grade_score >= 50 ~ "Bon ⭐",
+  grade_score >= 30 ~ "Moyen",
+  TRUE ~ "Médiocre"
+)
+```
+
+Page 1 - KPIs Principaux {data-icon="fa-tachometer-alt"}
+=======================================================================
+
+Row {data-height=180}
+-----------------------------------------------------------------------
+
+### 🏄 Box : Meilleur moment pour surfer
+
+```{r}
+valueBox(
+  value = paste(best_moment$day, best_moment$hour, sep = " - "),
+  caption = paste0("🌊 ", round(best_moment$wave_mean, 2), "m | 💨 ", 
+                   best_moment$wind_speed_clean, " km/h | 🧭 ", 
+                   best_moment$wind_direction),
+  icon = "fa-water",
+  color = "success"
+)
+```
+
+### 🌊 Box : Vague la plus haute de la semaine
+
+```{r}
+valueBox(
+  value = paste0(round(highest_wave$wave_max, 2), " m"),
+  caption = paste0("📅 ", highest_wave$day, " à ", highest_wave$hour),
+  icon = "fa-chart-line",
+  color = "info"
+)
+```
+
+### 📊 Gauge : Qualité de la mer (meilleur moment)
+
+```{r}
+gauge(
+  value = grade_score,
+  min = 0,
+  max = 100,
+  symbol = '%',
+  label = grade_text,
+  gaugeSectors(
+    success = c(80, 100),
+    warning = c(50, 79),
+    danger = c(0, 49)
+  )
+)
+```
+
+Row {data-height=410}
+-----------------------------------------------------------------------
+
+### 📈 Graphique 1 : Hauteur moyenne des vagues (sur 7 jours)
+
+```{r}
+p1 <- ggplot(data, aes(x = time_index, y = wave_mean)) +
+  geom_line(color = "#2196F3", size = 1.5) +
+  geom_point(color = "#2196F3", size = 2.5) +
+  geom_ribbon(aes(ymin = wave_min, ymax = wave_max), 
+              alpha = 0.2, fill = "#2196F3") +
+  geom_hline(yintercept = 1.0, linetype = "dashed", 
+             color = "#4CAF50", size = 1.2) +
+  annotate("text", x = max(data$time_index) * 0.15, y = 1.2, 
+           label = "Seuil optimal : ≥ 1.0m", 
+           color = "#4CAF50", fontface = "bold", size = 4.5) +
+  labs(
+    title = "Hauteur moyenne des vagues",
+    subtitle = "Zone bleue : plage min-max | Ligne verte : seuil optimal",
+    x = "Temps (prévisions chronologiques)",
+    y = "Hauteur (mètres)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18, color = "#2196F3"),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 11),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+ggplotly(p1, height = 390) %>%
+  layout(hovermode = "x unified")
+```
+
+### 💨 Graphique 2 : Vitesse du vent (sur 7 jours)
+
+```{r}
+p2 <- ggplot(data, aes(x = time_index, y = wind_speed_clean)) +
+  geom_line(color = "#FF9800", size = 1.5) +
+  geom_point(color = "#FF9800", size = 2.5) +
+  geom_hline(yintercept = 50, linetype = "dashed", 
+             color = "#F44336", size = 1.2) +
+  annotate("text", x = max(data$time_index) * 0.15, y = 54, 
+           label = "Limite acceptable : ≤ 50 km/h", 
+           color = "#F44336", fontface = "bold", size = 4.5) +
+  labs(
+    title = "Vitesse du vent",
+    subtitle = "Ligne rouge : limite acceptable",
+    x = "Temps (prévisions chronologiques)",
+    y = "Vitesse (km/h)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 18, color = "#FF9800"),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 11),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid.minor = element_blank()
+  )
+
+ggplotly(p2, height = 390) %>%
+  layout(hovermode = "x unified")
+```
+
+Row {data-height=410}
+-----------------------------------------------------------------------
+
+### 📋 Tableau : Prévisions détaillées (Jour, Heure, Taille vagues, Direction)
+
+```{r}
+table_data <- data %>%
+  select(day, hour, waves_size, wind_direction) %>%
+  rename(
+    `📅 Jour` = day,
+    `🕐 Heure` = hour,
+    `🌊 Taille des vagues` = waves_size,
+    `🧭 Direction du vent` = wind_direction
+  )
+
+datatable(
+  table_data,
+  options = list(
+    pageLength = 15,
+    scrollY = "340px",
+    scrollX = FALSE,
+    searching = TRUE,
+    ordering = TRUE,
+    info = TRUE,
+    lengthChange = TRUE,
+    lengthMenu = c(10, 15, 20, 50, 100),
+    columnDefs = list(
+      list(className = 'dt-center', targets = 1:3),
+      list(className = 'dt-left', targets = 0)
+    ),
+    language = list(
+      search = "Rechercher :",
+      lengthMenu = "Afficher _MENU_ lignes",
+      info = "Affichage de _START_ à _END_ sur _TOTAL_ prévisions"
+    )
+  ),
+  rownames = FALSE,
+  class = 'cell-border stripe hover compact',
+  filter = 'top',
+  caption = htmltools::tags$caption(
+    style = 'caption-side: top; text-align: center; font-weight: bold; font-size: 16px; padding: 12px; color: #2196F3;',
+    '🔍 Tableau interactif : Triez et filtrez les données'
+  )
+)
+```
+
+Page 2 - Analyse détaillée {data-icon="fa-chart-bar"}
+=======================================================================
+
+Row {data-height=300}
+-----------------------------------------------------------------------
+
+### 📊 Système de notation (Score sur 100 points)
+
+```{r}
+criteres <- data.frame(
+  `Critère d'évaluation` = c(
+    "🌊 Hauteur vague ≥ 1.0m",
+    "💨 Vitesse vent ≤ 50 km/h",
+    "🧭 Direction vent contient 'Nord'"
+  ),
+  `Points attribués` = c("40 points", "30 points", "30 points"),
+  `Statut` = c(
+    ifelse(best_moment$is_good_wave, "✅ Validé", "❌ Non validé"),
+    ifelse(best_moment$is_good_wind_speed, "✅ Validé", "❌ Non validé"),
+    ifelse(best_moment$is_good_wind_direction, "✅ Validé", "❌ Non validé")
+  ),
+  `Valeur mesurée` = c(
+    paste0(round(best_moment$wave_mean, 2), " m"),
+    paste0(best_moment$wind_speed_clean, " km/h"),
+    best_moment$wind_direction
+  ),
+  check.names = FALSE
+)
+
+knitr::kable(
+  criteres,
+  align = c('l', 'c', 'c', 'l'),
+  caption = paste0("<h3 style='color: #2196F3; text-align: center;'>Score total du meilleur moment : <span style='color: #4CAF50;'>", 
+                   grade_score, "/100</span> - ", grade_text, "</h3>")
+)
+```
+
+### ℹ️ Statistiques hebdomadaires
+
+```{r}
+nb_good <- sum(data$surf_score >= 70)
+pct_good <- round(nb_good / nrow(data) * 100, 1)
+nb_excellent <- sum(data$surf_score >= 90)
+nb_perfect <- sum(data$surf_score == 100)
+
+stats_html <- paste0(
+  "<div style='padding: 25px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; color: white; box-shadow: 0 10px 20px rgba(0,0,0,0.2);'>",
+  "<h2 style='margin-top: 0; text-align: center; font-size: 22px; border-bottom: 2px solid white; padding-bottom: 10px;'>📊 Résumé de la semaine</h2>",
+  "<table style='width: 100%; color: white; font-size: 15px; margin-top: 15px;'>",
+  "<tr><td style='padding: 8px;'><strong>📅 Nombre total de prévisions</strong></td><td style='text-align: right; padding: 8px;'><strong>", nrow(data), "</strong></td></tr>",
+  "<tr><td style='padding: 8px;'><strong>📆 Période analysée</strong></td><td style='text-align: right; padding: 8px;'>", data$day[1], " → ", data$day[nrow(data)], "</td></tr>",
+  "<tr style='background: rgba(255,255,255,0.1);'><td style='padding: 8px;'><strong>🌊 Hauteur moyenne des vagues</strong></td><td style='text-align: right; padding: 8px;'><strong>", round(mean(data$wave_mean), 2), " m</strong></td></tr>",
+  "<tr><td style='padding: 8px;'><strong>💨 Vitesse moyenne du vent</strong></td><td style='text-align: right; padding: 8px;'><strong>", round(mean(data$wind_speed_clean), 1), " km/h</strong></td></tr>",
+  "<tr style='background: rgba(255,255,255,0.1);'><td style='padding: 8px;'><strong>📏 Plage des vagues (min-max)</strong></td><td style='text-align: right; padding: 8px;'>", 
+  round(min(data$wave_min), 2), " m - <strong>", round(max(data$wave_max), 2), " m</strong></td></tr>",
+  "<tr><td style='padding: 8px;'><strong>✅ Conditions bonnes/excellentes (≥70%)</strong></td><td style='text-align: right; padding: 8px;'><strong>", nb_good, "</strong> prévisions (", pct_good, "%)</td></tr>",
+  "<tr style='background: rgba(255,255,255,0.1);'><td style='padding: 8px;'><strong>⭐ Conditions excellentes (≥90%)</strong></td><td style='text-align: right; padding: 8px;'><strong>", nb_excellent, "</strong> prévisions</td></tr>",
+  "<tr><td style='padding: 8px;'><strong>🌟 Conditions parfaites (100%)</strong></td><td style='text-align: right; padding: 8px;'><strong>", nb_perfect, "</strong> prévisions</td></tr>",
+  "</table>",
+  "</div>"
+)
+
+htmltools::HTML(stats_html)
+```
+
+Row {data-height=400}
+-----------------------------------------------------------------------
+
+### 📊 Distribution des scores de qualité
+
+```{r}
+p3 <- ggplot(data, aes(x = surf_score)) +
+  geom_histogram(binwidth = 10, fill = "#9C27B0", color = "white", alpha = 0.85) +
+  geom_vline(xintercept = grade_score, linetype = "dashed", color = "#4CAF50", size = 1.5) +
+  annotate("text", x = grade_score + 10, 
+           y = max(hist(data$surf_score, breaks = seq(0, 100, 10), plot = FALSE)$counts) * 0.85,
+           label = paste0("Meilleur\nmoment\n", grade_score, "%"), 
+           color = "#4CAF50", fontface = "bold", size = 4.5) +
+  scale_x_continuous(breaks = seq(0, 100, 10)) +
+  labs(
+    title = "Répartition des scores de qualité de surf",
+    subtitle = "Ligne verte : score du meilleur moment identifié",
+    x = "Score de qualité (0-100 points)",
+    y = "Nombre de prévisions"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 17, color = "#9C27B0"),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 11)
+  )
+
+ggplotly(p3, height = 380)
+```
+
+### 🧭 Fréquence des directions de vent
+
+```{r}
+wind_counts <- data %>%
+  count(wind_direction) %>%
+  arrange(desc(n)) %>%
+  mutate(
+    pct = round(n / sum(n) * 100, 1),
+    has_nord = grepl("Nord", wind_direction, ignore.case = TRUE)
+  )
+
+p4 <- ggplot(wind_counts, aes(x = reorder(wind_direction, n), y = n, fill = has_nord)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("TRUE" = "#4CAF50", "FALSE" = "#2196F3"),
+                    labels = c("Autres", "Contient 'Nord'"),
+                    name = "Type") +
+  coord_flip() +
+  geom_text(aes(label = paste0(n, " (", pct, "%)")), 
+            hjust = -0.1, size = 3.5, fontface = "bold") +
+  labs(
+    title = "Répartition des directions de vent",
+    subtitle = paste0("Direction la plus fréquente : ", wind_counts$wind_direction[1], 
+                     " (", wind_counts$pct[1], "%)"),
+    x = "Direction du vent",
+    y = "Nombre de prévisions"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 17, color = "#2196F3"),
+    plot.subtitle = element_text(hjust = 0.5, color = "gray40", size = 11),
+    legend.position = "top"
+  ) +
+  ylim(0, max(wind_counts$n) * 1.15)
+
+ggplotly(p4, height = 380)
+```

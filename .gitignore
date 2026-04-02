@@ -1,0 +1,17 @@
+# Environnement virtuel
+station_env/
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# R history
+.Rhistory
+.RData
+
+# Fichiers système
+.DS_Store
+Thumbs.db

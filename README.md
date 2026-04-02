@@ -38,15 +38,15 @@ Pour chaque variable :
 - Sélection du test adapté (χ², t-test…)  
 - Analyse de son influence sur la maladie  
 
-### 5. 🩺 Construction du protocole médical
+### 5. Construction du protocole médical
 - Sélection des variables les plus discriminantes  
 - Proposition d’un protocole optimal minimisant le nombre de tests  
 
-### 6. 🌳 Bonus : Arbre de décision
+### 6. Bonus : Arbre de décision
 - Construction d’un modèle CART  
 - Comparaison avec le protocole manuel  
 
-### 7. 🖥️ Bonus : Présentation
+### 7. Bonus : Présentation
 - Synthèse claire et pédagogique destinée à des médecins généralistes  
 
 ---
@@ -78,7 +78,7 @@ Une fonction unique permettant :
 - de choisir l’emplacement d’enregistrement  
 
 ### 3. Script Python d’exécution
-- Permet d’appeler la librairie depuis le terminal  
+- Permet d’appeler la librairie (surf-scrap-cli) depuis le terminal  
 
 ### 4. Dashboard R (flexdashboard)
 Contenu :
@@ -119,11 +119,15 @@ Critères de qualité :
 - R (flexdashboard, tidyverse, plotly, DT)
 
 
-👩‍💻 Auteure
-Céline Adoussingande  
+👩‍💻 **Auteure**
+
+Céline Adoussingande 
+
 Étudiante en Data Science & Économétrie
 Alternante Chargée d'études - Intelligence de la donnée – SFR
 
-📬 Contact
+📬 **Contact**
+
 📧 Email : mauriceteadoussingande@yahoo.com 
+
 🔗 LinkedIn : https://www.linkedin.com/in/céline-adoussingande
